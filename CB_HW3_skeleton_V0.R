@@ -115,7 +115,15 @@ get_hamming_distance = function(sequence1, sequence2) {
     #    sequence1: first sequence 
     #    sequence2: second sequence
 
-    # ???
+    seq1_split <- strsplit(sequence1, "")[[1]]
+    seq2_split <- strsplit(sequence2, "")[[1]]
+    distance <- 0
+    # Both sequences are alignments -> they are assumed to have the same length
+    for (i in (1:length(seq1_split))) {
+        if (seq1_split[i] != seq2_split[i]) {
+          distance <- distance+1
+        }
+    }
 
     # Return the numerical value of the distance
     return(distance)
@@ -126,7 +134,11 @@ get_JC69_distance = function(sequence1, sequence2) {
     #    sequence1: first sequence
     #    sequence2: second sequence
 
-    # ???
+    # Both sequences are alignments -> they are assumed to have the same length
+    seq1_split <- strsplit(sequence1, "")[[1]]
+    
+    prop <- (get_hamming_distance(sequence1 = sequence1, sequence2 = sequence2))/length(seq1_split)
+    distance <- (-3/4)*log(1-(4/3)*prop)
 
     # Return the numerical value of the distance
     return(distance)
@@ -136,8 +148,30 @@ get_K80_distance = function(sequence1, sequence2) {
     # Compute the K80 distance between two sequences.
     #    sequence1: first sequence
     #    sequence2: second sequence
+    seq1_split <- strsplit(sequence1, "")[[1]]
+    seq2_split <- strsplit(sequence2, "")[[1]]
 
-    # ???
+    transit_diffs <- 0
+    transvers_diffs <- 0
+    for (i in (1:length(seq1_split))) {
+        base1 <- seq1_split[i]
+        base2 <- seq2_split[i]
+        trans_pair1 <- c("C","T")
+        trans_pair2 <- c("A", "G")
+        if (base1 != base2) {
+            if (base1 %in% trans_pair1 && base2 %in% trans_pair1
+                || base1 %in% trans_pair2 && base2 %in% trans_pair2) {
+                transit_diffs <- transit_diffs + 1
+            } else {
+                transvers_diffs <- transvers_diffs +1
+            }
+        }
+    }
+    
+    S <- transit_diffs/length(seq1_split)
+    V <- transvers_diffs/length(seq2_split)
+    
+    distance <- -(1/2)*log(1-(2*S)-V)-(1/4)*log(1-S*V)
 
     # Return the numerical value of the distance
     return(distance)
@@ -253,4 +287,4 @@ test_tree_building = function() {
     plot_tree(tree)
 }
 
-test_tree_building()
+#test_tree_building()
