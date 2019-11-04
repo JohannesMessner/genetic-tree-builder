@@ -196,7 +196,21 @@ compute_initial_distance_matrix = function(sequences, distance_measure) {
     rownames(distance_matrix) <- names(sequences)
     colnames(distance_matrix) <- names(sequences)
 
-    # ???
+    if (distance_measure == "hamming") {
+        distance_func <- get_hamming_distance
+    } else if (distance_measure == "JC69") {
+        distance_func <- get_JC69_distance
+    } else {
+        distance_func <- get_K80_distance
+    }
+    
+    for (i in 1:N) {
+        for (j in 1:N) {
+            seq1 <- sequences[[rownames(distance_matrix)[i]]]
+            seq2 <- sequences[[colnames(distance_matrix)[j]]]
+            distance_matrix[i,j] <- distance_func(seq1, seq2)
+        }
+    }
 
     # Return the NxN matrix of inter-sequence distances with Inf on the diagonal
     return(distance_matrix)
