@@ -156,11 +156,11 @@ get_K80_distance = function(sequence1, sequence2) {
     for (i in (1:length(seq1_split))) {
         base1 <- seq1_split[i]
         base2 <- seq2_split[i]
-        trans_pair1 <- c("C","T")
-        trans_pair2 <- c("A", "G")
+        transit_pair1 <- c("C","T")
+        transit_pair2 <- c("A", "G")
         if (base1 != base2) {
-            if (base1 %in% trans_pair1 && base2 %in% trans_pair1
-                || base1 %in% trans_pair2 && base2 %in% trans_pair2) {
+            if ((base1 %in% transit_pair1 && base2 %in% transit_pair1)
+                || (base1 %in% transit_pair2 && base2 %in% transit_pair2)) {
                 transit_diffs <- transit_diffs + 1
             } else {
                 transvers_diffs <- transvers_diffs +1
@@ -171,7 +171,7 @@ get_K80_distance = function(sequence1, sequence2) {
     S <- transit_diffs/length(seq1_split)
     V <- transvers_diffs/length(seq2_split)
     
-    distance <- -(1/2)*log(1-(2*S)-V)-(1/4)*log(1-S*V)
+    distance <- -(1/2)*log(1-(2*S)-V)-(1/4)*log(1-2*V)
 
     # Return the numerical value of the distance
     return(distance)
@@ -196,6 +196,7 @@ compute_initial_distance_matrix = function(sequences, distance_measure) {
     rownames(distance_matrix) <- names(sequences)
     colnames(distance_matrix) <- names(sequences)
 
+    # determine distance measure
     if (distance_measure == "hamming") {
         distance_func <- get_hamming_distance
     } else if (distance_measure == "JC69") {
@@ -204,11 +205,14 @@ compute_initial_distance_matrix = function(sequences, distance_measure) {
         distance_func <- get_K80_distance
     }
     
+    # fill matrix
     for (i in 1:N) {
         for (j in 1:N) {
-            seq1 <- sequences[[rownames(distance_matrix)[i]]]
-            seq2 <- sequences[[colnames(distance_matrix)[j]]]
-            distance_matrix[i,j] <- distance_func(seq1, seq2)
+            if ( i != j) {
+                seq1 <- sequences[[rownames(distance_matrix)[i]]]
+                seq2 <- sequences[[colnames(distance_matrix)[j]]]
+                distance_matrix[i,j] <- distance_func(seq1, seq2)
+            }
         }
     }
 
@@ -222,8 +226,14 @@ get_merge_node_distance = function(node_description, distance_matrix, merging_no
     #    distance_matrix: the matrix of current distances between nodes
     #    merging_nodes: a vector of two node names that are being merged in this step
     #    existing_node: one of the previously existing nodes, not included in the new node
-  
-    # ???
+    
+    n_i <- node_description[[merging_nodes[1],"node_sizes"]]
+    n_j <- node_description[[merging_nodes[2],"node_sizes"]]
+    
+    d_i <- distance_matrix[merging_nodes[1], existing_node]
+    d_j <- distance_matrix[merging_nodes[2], existing_node]
+    
+    new_distance <- (n_i*d_i + n_j*d_j)/(n_i + n_j)
   
     # Returns the distance between the newly created merge node and the existing node
     return(new_distance)
@@ -239,7 +249,37 @@ update_distance_matrix = function(node_description, distance_matrix, merging_nod
     # was MxM, then the updated matrix will be M-1xM-1, where the 2 rows and cols represent the separate
     # nodes undergoing the merge are taken out and a new row and col added that represents the new node.
 
-    # ???
+    # create updated matrix
+    # remove entries containing merging (old) nodes
+    updated_distance_matrix <- distance_matrix[! rownames(distance_matrix) %in% merging_nodes,! colnames(distance_matrix) %in% merging_nodes]
+    if (! is.matrix(updated_distance_matrix)) {
+        updated_distance_matrix <- matrix(updated_distance_matrix)
+    }
+    
+    # add row and column for merged (new) node
+    previous_names <- rownames(updated_distance_matrix)
+    if (is.null(previous_names)) {
+        previous_names <- rownames(distance_matrix)[! rownames(distance_matrix) %in% merging_nodes]
+    }
+    updated_distance_matrix <- rbind(updated_distance_matrix, rep(Inf, ncol(updated_distance_matrix)))
+    updated_distance_matrix <- cbind(updated_distance_matrix, rep(Inf, nrow(updated_distance_matrix)))
+    names <- c(previous_names, new_node_name)
+    rownames(updated_distance_matrix) <- names
+    colnames(updated_distance_matrix) <- names
+
+    # compute new distances to merged (new) node
+    for (i in 1:ncol(distance_matrix)) {
+        if (rownames(updated_distance_matrix)[i] == new_node_name) {
+            break
+        }
+        new_dist <- get_merge_node_distance(node_description = node_description,
+                                            distance_matrix = distance_matrix,
+                                            merging_nodes = merging_nodes,
+                                            existing_node = colnames(updated_distance_matrix)[i])
+        
+        updated_distance_matrix[nrow(updated_distance_matrix), i] <- new_dist
+        updated_distance_matrix[i, ncol(updated_distance_matrix)] <- new_dist
+    }
 
     # Returns the updated matrix of cluster distances
     return(updated_distance_matrix)
@@ -255,8 +295,42 @@ upgma_one_step = function(node_description, distance_matrix, edges, edge_lengths
     #           edges and the 2 columns are the parent node and the child node of an edge.
     #    edge_lengths: a vector of length M of the corresponding edge lengths.
   
-    # ???
-  
+    # determine which nodes will be merged (the ones with minimal distance)
+    merging_nodes_indices <- which(distance_matrix == min(distance_matrix), arr.ind=T)
+    merging_nodes_indices <- c(merging_nodes_indices[1,1], merging_nodes_indices[1,2])
+    merging_nodes <- c(rownames(distance_matrix)[merging_nodes_indices[1]], rownames(distance_matrix)[merging_nodes_indices[2]])
+    
+    # obtain information regarding these merging nodes
+    d_to_tip_1 <- node_description[merging_nodes[1], "node_heights"]
+    d_to_tip_2 <- node_description[merging_nodes[2], "node_heights"]
+    size_1 <- node_description[merging_nodes[1], "node_sizes"]
+    size_2 <- node_description[merging_nodes[2], "node_sizes"]
+    
+    # calculate lenghts for newly merged node
+    d_between_merging_nodes <- distance_matrix[merging_nodes[1], merging_nodes[2]]
+    new_length_1 <- d_between_merging_nodes/2 - d_to_tip_1
+    new_length_2 <- d_between_merging_nodes/2 - d_to_tip_2
+    
+    # update information about edge lengths with newly calculated lengths
+    edge_lengths <- c(edge_lengths, new_length_1, new_length_2)
+    
+    # add new merged node to existing nodes
+    desc_update <- add_new_node(node_description, merging_nodes)
+    node_description <- desc_update[["node_description"]]
+    new_node_name <- desc_update[["new_node_name"]]
+    # calculate properties of new entry for the newly merged node
+    node_description[new_node_name, "node_sizes"] <- size_1 + size_2
+    node_description[new_node_name, "node_heights"] <- new_length_1 + d_to_tip_1
+    # add new edges
+    edges <- rbind(edges, c(new_node_name, merging_nodes[1]))
+    edges <- rbind(edges, c(new_node_name, merging_nodes[2]))
+    
+    #update distance metrix with the new merged node
+    distance_matrix <- update_distance_matrix(node_description = node_description,
+                                             distance_matrix = distance_matrix,
+                                             merging_nodes = merging_nodes,
+                                             new_node_name = new_node_name)
+                                    
     # Return the updated distance matrix, edge description matrix, edge length vector and 
     # node_description data frame
     #    node_description: data frame containing sizes and heights of all nodes 
@@ -275,12 +349,23 @@ build_upgma_tree = function(sequences, distance_measure) {
     #               sequences
     #    distance_measure: a string indicating whether the 'hamming', 'JC69' or 'K80' distance measure
     #                      should be used
+    
+    # initialize empty data structures
     N <- length(sequences)
     node_description <- initialize_node_description(sequences)
     edges <- matrix(nrow = 0, ncol = 2)
     edge_lengths <- vector(mode = "numeric", length = 0)
-  
-    # ???
+    # intial distance matrix
+    distance_matrix <- compute_initial_distance_matrix(sequences, distance_measure)
+    
+    # perform UPGMA-steps (node-merging and information update) until root is formed
+    while(nrow(distance_matrix) > 1 && ncol(distance_matrix) > 1) {
+        updated_values <- upgma_one_step(node_description, distance_matrix, edges, edge_lengths)
+        node_description <- updated_values[["node_description"]]
+        distance_matrix <- updated_values[["distance_matrix"]]
+        edges <- updated_values[["edges"]]
+        edge_lengths <- updated_values[["edge_lengths"]]
+    }
   
     # Return the UPGMA tree of sequences
     tree <- transform_to_phylo(sequences, edges, edge_lengths, node_description)
@@ -301,4 +386,4 @@ test_tree_building = function() {
     plot_tree(tree)
 }
 
-#test_tree_building()
+test_tree_building()
