@@ -170,7 +170,7 @@ get_K80_distance = function(sequence1, sequence2) {
     
     S <- transit_diffs/length(seq1_split)
     V <- transvers_diffs/length(seq2_split)
-    
+
     distance <- -(1/2)*log(1-(2*S)-V)-(1/4)*log(1-2*V)
 
     # Return the numerical value of the distance
